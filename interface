@@ -5,6 +5,8 @@ from vk_api.utils import get_random_id
 from config import comunity_token, acces_token
 from core import VkTools
 
+from data_store import check_user, add_user, engine
+
 
 class BotInterface():
     def __init__(self, comunity_token, acces_token):
@@ -23,50 +25,73 @@ class BotInterface():
                         'random_id': get_random_id()}
                        )
 
+# обработка событий / получение сообщений
+
     def event_handler(self):
         for event in self.longpoll.listen():
             if event.type == VkEventType.MESSAGE_NEW and event.to_me:
                 if event.text.lower() == 'начать':
                     '''Логика для получения данных о пользователе'''
                     self.params = self.vk_tools.get_profile_info(event.user_id)
-                    self.message_send(event.user_id,
-                        f'Здравствуй, {self.params["name"]}. Чтобы начать подбор кандидатов напиши "поиск".')
+                    self.message_send(
+                        event.user_id, f'Здравствуй, {self.params["name"]}!')
+                    if self.params.get('bdate') is None:
+                        self.params['bdate'] = self.bdate_request(event.user_id)
+                    elif self.params.get('sex') is None:
+                        self.params['sex'] = self.sex_request(event.user_id)
+                    elif self.params.get('city') is None:
+                        self.params['city'] = self.city_request(event.user_id)
                 elif event.text.lower() == 'поиск':
-                    '''Логика для поиска анкет'''
-                    self.message_send(event.user_id, 'Начинаем поиск')
                     if self.worksheets:
-                        worksheet = self.worksheets.pop()
-                        photos = self.vk_tools.get_photos(worksheet['id'])
-                        photo_string = ''
-                        for photo in photos:
-                            photo_string += f'photo{photo["owner_id"]}_{photo["id"]},'
+                        self.add_db(event)
                     else:
+                        self.message_send(event.user_id, 'Начинаем поиск')
                         self.worksheets = self.vk_tools.search_worksheet(
                             self.params, self.offset)
-
-                        worksheet = self.worksheets.pop()
-                        'проверка анкеты в бд в соотвествие с event.user_id'
-
-                        photos = self.vk_tools.get_photos(worksheet['id'])
-                        photo_string = ''
-                        for photo in photos:
-                            photo_string += f'photo{photo["owner_id"]}_{photo["id"]},'
+                        self.add_db(event)
                         self.offset += 10
-
-                    self.message_send(
-                        event.user_id,
-                        f'имя: {worksheet["name"]} ссылка: vk.com/id{worksheet["id"]}',
-                        attachment=photo_string
-                    )
-
-                    'добавить анкету в бд в соотвествие с event.user_id'
-
                 elif event.text.lower() == 'пока':
                     self.message_send(
-                        event.user_id, 'До свидания!')
+                        event.user_id, 'До новых встреч')
                 else:
                     self.message_send(
                         event.user_id, 'Неизвестная команда')
+
+    def bdate_request(self, user_id):
+        self.message_send(user_id, 'Введите дату Вашего рождения в формате ДД.ММ.ГГГГ.(например 1.1.2000):')
+        for event in self.longpoll.listen():
+            if event.type == VkEventType.MESSAGE_NEW and event.to_me:
+                self.message_send(user_id, 'Чтобы начать подбор кандидатов напиши "поиск".')
+                return event.text
+
+    def sex_request(self, user_id):
+        self.message_send(user_id, 'Введите: 1 - если Ваш пол женский, 2 - если мужской')
+        for event in self.longpoll.listen():
+            if event.type == VkEventType.MESSAGE_NEW and event.to_me:
+                self.message_send(user_id, 'Чтобы начать подбор кандидатов напиши "поиск".')
+                return event.text
+
+    def city_request(self, user_id):
+        self.message_send(user_id, 'Введите город Вашего проживания:')
+        for event in self.longpoll.listen():
+            if event.type == VkEventType.MESSAGE_NEW and event.to_me:
+                self.message_send(user_id, 'Чтобы начать подбор кандидатов напиши "поиск".')
+                return self.vk_tools.get_cities(event.text)
+
+    def add_db(self, event):
+        while len(self.worksheets) >= 1:
+            worksheet = self.worksheets.pop()
+            if check_user(engine, event.user_id, worksheet['id']):
+                continue
+            photos = self.vk_tools.get_photos(worksheet['id'])
+            photo_string = ''
+            for photo in photos:
+                photo_string += f'photo{photo["owner_id"]}_{photo["id"]},'
+            self.message_send(event.user_id,
+                              f'имя: {worksheet["name"]} ссылка: vk.com/id{worksheet["id"]}',
+                              attachment=photo_string
+                              )
+            add_user(engine, event.user_id, worksheet['id'])
 
 
 if __name__ == '__main__':
