@@ -79,7 +79,26 @@ class VkTools:
                    } for item in photos['items']
                   ]
         '''сортировка п лайкам и комментам'''
-        return result[:3]
+        sorted_result = sorted(result, key=lambda x: (x['likes'], x['comments']))
+        return sorted_result[:3]
+        return result
+
+    def get_cities(self, q=''):
+        try:
+            cities = self.vkapi.method('database.getCities',
+                                       {'q': q,
+                                        'count': 1
+                                       }
+                                       )
+        except ApiError as e:
+            cities = {}
+            print(f'error = {e}')
+
+        result = cities.get('items')
+        if result:
+            return result[0].get('id')
+        else:
+            return None
 
 
 if __name__ == '__main__':
